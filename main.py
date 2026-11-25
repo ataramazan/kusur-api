@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
 import logging
+import os
 import time
 
-from fastapi import Depends, FastAPI, HTTPException, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 
@@ -122,6 +123,7 @@ def saglik_kontrolu(settings: Settings = Depends(get_settings)) -> SaglikYaniti:
     response_model=AnalizYaniti,
     responses={
         401: {"description": "Geçersiz veya eksik istemci API anahtarı"},
+        403: {"description": "Yetkisiz erişim: Geçersiz veya eksik X-API-Secret başlığı"},
         422: {"description": "Geçersiz istek gövdesi veya doğrulama hatası"},
         429: {"description": "Hız sınırı veya yukarı akış kota limiti aşıldı"},
         502: {"description": "Harici yapay zeka servisi geçersiz yanıt verdi veya erişilemedi"},
@@ -132,10 +134,18 @@ def saglik_kontrolu(settings: Settings = Depends(get_settings)) -> SaglikYaniti:
 async def kusur_analizi_yap(
     istek: AnalizIstegi,
     response: Response,
+    x_api_secret: str | None = Header(default=None, alias="X-API-Secret"),
     auth_info: tuple[str, int] = Depends(enforce_rate_limit),
     client: genai.Client | None = Depends(get_genai_client),
     settings: Settings = Depends(get_settings),
 ) -> AnalizYaniti:
+    gizli_anahtar = os.getenv("API_SECRET_KEY")
+    if gizli_anahtar and x_api_secret != gizli_anahtar:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Yetkisiz erisim: Gecersiz veya eksik X-API-Secret basligi.",
+        )
+
     if client is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
